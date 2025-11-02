@@ -516,4 +516,157 @@ class ConversationRepositoryImpl @Inject constructor(
                     }
                 }
         }
+
+    fun duplicateConversation(
+        threadId: Long,
+        copyMessages: Boolean,
+        copyDraft: Boolean
+    ): Long? = tryOrNull(true) {
+        val realm = Realm.getDefaultInstance()
+
+        try {
+            realm.refresh()
+
+            // Get the original conversation
+            val originalConversation = realm.where(Conversation::class.java)
+                .equalTo("id", threadId)
+                .findFirst() ?: return@tryOrNull null
+
+            // Extract recipient addresses
+            val recipientAddresses = originalConversation.recipients
+                .map { it.address }
+                .toSet()
+
+            if (recipientAddresses.isEmpty()) {
+                return@tryOrNull null
+            }
+
+            // Create or get a new thread ID from the system
+            val newThreadId = TelephonyCompat.getOrCreateThreadId(
+                context,
+                recipientAddresses
+            )
+
+            if (newThreadId == 0L || newThreadId == threadId) {
+                // If we got the same thread ID or invalid ID, we can't duplicate
+                return@tryOrNull null
+            }
+
+            // Create the new conversation
+            val newConversation = createOrUpdateDuplicatedConversation(
+                realm,
+                originalConversation,
+                newThreadId,
+                copyDraft
+            )
+
+            // Optionally copy messages
+            if (copyMessages) {
+                copyConversationMessages(realm, threadId, newThreadId)
+            }
+
+            newThreadId
+
+        } finally {
+            realm.close()
+        }
+    }
+
+    /**
+     * Creates or updates the duplicated conversation in Realm
+     */
+    private fun createOrUpdateDuplicatedConversation(
+        realm: Realm,
+        original: Conversation,
+        newThreadId: Long,
+        copyDraft: Boolean
+    ): Conversation {
+        val newConversation = realm.where(Conversation::class.java)
+            .equalTo("id", newThreadId)
+            .findFirst()
+            ?: Conversation().apply { id = newThreadId }
+
+        realm.executeTransaction {
+            // Copy conversation properties
+            newConversation.apply {
+                archived = original.archived
+                blocked = original.blocked
+                pinned = false // Don't pin the duplicate by default
+                blockingClient = original.blockingClient
+                blockReason = original.blockReason
+                name = (original.name?.let { "$it (Copy)" } ?: null).toString()
+
+                // Copy draft if requested
+                if (copyDraft && !original.draft.isNullOrEmpty()) {
+                    draft = original.draft
+                    draftDate = System.currentTimeMillis()
+                }
+
+                // Copy recipients (they should be the same since we used same addresses)
+                recipients.clear()
+                recipients.addAll(realm.copyToRealmOrUpdate(original.recipients))
+
+                // Set last message to null initially (will be updated if messages are copied)
+                lastMessage = null
+            }
+
+            it.insertOrUpdate(newConversation)
+        }
+
+        return newConversation
+    }
+
+    /**
+     * Copies messages from original conversation to the new conversation
+     */
+    private fun copyConversationMessages(
+        realm: Realm,
+        originalThreadId: Long,
+        newThreadId: Long
+    ) {
+        val originalMessages = realm.where(Message::class.java)
+            .equalTo("threadId", originalThreadId)
+            .sort("date", Sort.ASCENDING)
+            .findAll()
+
+        if (originalMessages.isEmpty()) {
+            return
+        }
+
+        realm.executeTransaction {
+            var lastMessage: Message? = null
+
+            originalMessages.forEach { original ->
+                val newMessage = realm.copyFromRealm(original)
+
+                // Update message properties
+                newMessage.apply {
+                    id = 0 // Let Realm assign a new ID
+                    threadId = newThreadId
+                    // Keep original timestamps and other properties
+                }
+
+                val insertedMessage = it.copyToRealmOrUpdate(newMessage)
+                lastMessage = insertedMessage
+            }
+
+            // Update the conversation's last message
+            val newConversation = realm.where(Conversation::class.java)
+                .equalTo("id", newThreadId)
+                .findFirst()
+
+            newConversation?.lastMessage = lastMessage
+        }
+    }
+
+    /**
+     * Asynchronous version using Completable
+     */
+    fun duplicateConversationAsync(
+        threadId: Long,
+        copyMessages: Boolean = false,
+        copyDraft: Boolean = true
+    ): Completable = Completable.fromCallable {
+        duplicateConversation(threadId, copyMessages, copyDraft)
+    }.subscribeOn(Schedulers.io())
 }
