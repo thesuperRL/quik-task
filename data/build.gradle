@@ -97,6 +97,7 @@ dependencies {
 }
 
 repositories {
+    mavenCentral()
     google()
     maven { url "https://jitpack.io" }
     maven { url 'https://maven.google.com' }
@@ -104,5 +105,4 @@ repositories {
         name 'glide-snapshot'
         url 'https://oss.sonatype.org/content/repositories/snapshots'
     }
-    mavenCentral()
 }
