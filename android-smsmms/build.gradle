@@ -27,6 +27,14 @@ android {
         targetSdkVersion 33
     }
 
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
 
     useLibrary 'org.apache.http.legacy'
     lint {
@@ -44,6 +52,7 @@ dependencies {
 }
 
 repositories {
+    mavenCentral()
     google()
     maven { url "https://jitpack.io" }
     maven { url 'https://maven.google.com' }
@@ -51,5 +60,4 @@ repositories {
         name 'glide-snapshot'
         url 'https://oss.sonatype.org/content/repositories/snapshots'
     }
-    mavenCentral()
 }

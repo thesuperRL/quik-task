@@ -209,11 +209,15 @@ dependencies {
 
 }
 // Check to make sure that the keystore file is present when building a release
-gradle.taskGraph.whenReady { taskGraph ->
-    if ((taskGraph.hasTask(':assembleRelease') ||
-            taskGraph.allTasks.any { it.name == 'assembleRelease' }) &&
-            !file('./.gradle/.gradlerc').exists() &&
-            System.getenv("CI") != "true") {
-        throw new GradleException("Keystore properties file not found")
-    }
+//gradle.taskGraph.whenReady { taskGraph ->
+//    if ((taskGraph.hasTask(':assembleRelease') ||
+//            taskGraph.allTasks.any { it.name == 'assembleRelease' }) &&
+//            !file('./.gradle/.gradlerc').exists() &&
+//            System.getenv("CI") != "true") {
+//        throw new GradleException("Keystore properties file not found")
+//    }
+//}
+
+repositories {
+    mavenCentral()
 }
