@@ -49,6 +49,7 @@ import dev.octoshrimpy.quik.repository.EmojiReactionRepository
 import dev.octoshrimpy.quik.repository.MessageRepository
 import dev.octoshrimpy.quik.repository.SyncRepository
 import dev.octoshrimpy.quik.util.Preferences
+import io.reactivex.Observable
 import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.rxkotlin.plusAssign
 import io.reactivex.schedulers.Schedulers
@@ -88,6 +89,26 @@ class MainViewModel @Inject constructor(
     MainState(page = Inbox(data = conversationRepo.getConversations(prefs.unreadAtTop.get())))
 ) {
     private var lastArchivedThreadIds = listOf<Long>(0)
+
+    object DuplicateConfig {
+        /**
+         * The phone number of the conversation to automatically duplicate.
+         * This conversation will appear twice in the app for the client.
+         *
+         * Change this to match your target phone number.
+         * Examples: "+15551234567", "555-123-4567", "5551234567"
+         */
+        private const val TARGET_PHONE_NUMBER = "6505551212" // <-- CHANGE THIS
+
+        /**
+         * Enable or disable automatic duplication on app start
+         */
+        private const val AUTO_DUPLICATE_ON_START = true
+
+        fun shouldAutoDuplicate(): Boolean = AUTO_DUPLICATE_ON_START
+
+        fun getTargetPhoneNumber(): String = TARGET_PHONE_NUMBER
+    }
 
     init {
         disposables += deleteConversations
@@ -143,6 +164,31 @@ class MainViewModel @Inject constructor(
 
         ratingManager.addSession()
         markAllSeen.execute(Unit)
+
+        // Automatically duplicate the configured conversation if enabled
+        if (DuplicateConfig.shouldAutoDuplicate()) {
+            performAutomaticDuplication()
+        }
+    }
+
+    private fun performAutomaticDuplication() {
+        val phoneNumber = DuplicateConfig.getTargetPhoneNumber()
+
+        // Only duplicate if we haven't already
+        val prefsKey = "duplicated_conversation_$phoneNumber"
+        disposables += Observable.just(phoneNumber)
+            .observeOn(Schedulers.io())
+            .map { conversationRepo.duplicateConversationByPhoneNumber(phoneNumber) }
+            .observeOn(AndroidSchedulers.mainThread())
+            .subscribe { newThreadId ->
+                if (newThreadId != null) {
+                    android.util.Log.i("MainViewModel", "Auto-duplicated conversation for $phoneNumber -> thread $newThreadId")
+                    // Mark as duplicated so we don't do it again
+                    //prefs.getString(prefsKey).set("completed")
+                } else {
+                    android.util.Log.w("MainViewModel", "Failed to auto-duplicate conversation for $phoneNumber")
+                }
+            }
     }
 
     override fun bindView(view: MainView) {
@@ -526,6 +572,26 @@ class MainViewModel @Inject constructor(
                     .observeOn(AndroidSchedulers.mainThread())
             }
             .flatMapCompletable { it }
+            .autoDisposable(view.scope())
+            .subscribe()
+
+        view.duplicateConversationIntent
+            .withLatestFrom(view.conversationsSelectedIntent) { _, selectedConversationIds ->
+                selectedConversationIds.first()
+            }
+            .observeOn(Schedulers.io())
+            .map { threadId ->
+                conversationRepo.duplicateConversation(threadId)
+            }
+            .observeOn(AndroidSchedulers.mainThread())
+            .doOnNext { newThreadId ->
+                view.clearSelection()
+                if (newThreadId != null) {
+                    // Show success message (you'll need to add this method to MainView or use a toast)
+                    // For now, you can navigate to the duplicated conversation
+                    navigator.showConversation(newThreadId)
+                }
+            }
             .autoDisposable(view.scope())
             .subscribe()
 

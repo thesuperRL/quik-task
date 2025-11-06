@@ -20,6 +20,7 @@ package dev.octoshrimpy.quik.repository
 
 import android.content.ContentUris
 import android.content.Context
+import android.util.Log
 import dev.octoshrimpy.quik.compat.TelephonyCompat
 import dev.octoshrimpy.quik.extensions.anyOf
 import dev.octoshrimpy.quik.extensions.asObservable
@@ -31,6 +32,7 @@ import dev.octoshrimpy.quik.mapper.CursorToRecipient
 import dev.octoshrimpy.quik.model.Contact
 import dev.octoshrimpy.quik.model.Conversation
 import dev.octoshrimpy.quik.model.Message
+import dev.octoshrimpy.quik.model.MmsPart
 import dev.octoshrimpy.quik.model.Recipient
 import dev.octoshrimpy.quik.model.SearchResult
 import dev.octoshrimpy.quik.util.PhoneNumberUtils
@@ -43,6 +45,7 @@ import io.realm.Case
 import io.realm.Realm
 import io.realm.RealmResults
 import io.realm.Sort
+import timber.log.Timber
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -516,4 +519,135 @@ class ConversationRepositoryImpl @Inject constructor(
                     }
                 }
         }
+
+    override fun duplicateConversation(tid: Long): Long? {
+        return Realm.getDefaultInstance().use { realm ->
+            realm.refresh()
+
+            // Get the original conversation
+            val originalConversation = realm.where(Conversation::class.java)
+                .equalTo("id", tid)
+                .findFirst() ?: return@use null
+
+            // Get all messages from the original conversation
+            val originalMessages = realm.where(Message::class.java)
+                .equalTo("threadId", tid)
+                .sort("date", Sort.ASCENDING)
+                .findAll()
+
+            if (originalMessages.isEmpty()) return@use null
+
+            // Create a new thread ID
+            val newThreadId = 10L
+
+            // Deep copy the conversation
+            val copiedConversation = realm.copyFromRealm(originalConversation)
+
+            // Copy and reassign recipients to avoid realm object issues
+            val copiedRecipients = copiedConversation.recipients
+
+            // Create new conversation with copied data
+            val newConversation = Conversation().apply {
+                id = newThreadId
+                archived = false
+                blocked = false
+                pinned = false
+                recipients.addAll(copiedRecipients)
+                draft = ""
+                name = when {
+                    originalConversation.name.isNotBlank() -> "${originalConversation.name} (Copy)"
+                    else -> "${originalConversation.getTitle()} (Copy)"
+                }
+            }
+
+            // Copy all messages
+            val newMessages = mutableListOf<Message>()
+            originalMessages.forEach { originalMessage ->
+                val copiedMessage = realm.copyFromRealm(originalMessage)
+
+                val newMessage = Message().apply {
+                    id = (newThreadId + newMessages.size) // Ensure unique IDs
+                    threadId = newThreadId
+                    contentId = 0
+                    address = copiedMessage.address
+                    body = copiedMessage.body
+                    date = copiedMessage.date
+                    dateSent = copiedMessage.dateSent
+                    read = true // Mark as read by default
+                    seen = true
+                    locked = false
+                    subId = copiedMessage.subId
+                    type = copiedMessage.type
+                    boxId = copiedMessage.boxId
+                    errorCode = 0
+                    deliveryStatus = copiedMessage.deliveryStatus
+
+                    // Copy parts if MMS
+                    if (copiedMessage.parts.isNotEmpty()) {
+                        val copiedParts = realm.copyFromRealm(copiedMessage.parts)
+                        copiedParts.forEach { part ->
+                            val newPart = MmsPart().apply {
+                                id = (newThreadId + newMessages.size + parts.size)
+                                type = part.type
+                                seq = part.seq
+                                name = part.name
+                                text = part.text
+                            }
+                            parts.add(newPart)
+                        }
+                    }
+                }
+
+                newMessages.add(newMessage)
+            }
+
+            // Insert into Realm
+            realm.executeTransaction { txRealm ->
+                // Insert conversation
+                val managedConversation = txRealm.copyToRealmOrUpdate(newConversation)
+
+                // Insert messages
+                newMessages.forEach { message ->
+                    txRealm.copyToRealmOrUpdate(message)
+                }
+
+                // Set last message
+                managedConversation.lastMessage = newMessages.lastOrNull()
+                    ?.let { txRealm.where(Message::class.java).equalTo("id", it.id).findFirst() }
+            }
+            Timber.tag("CRI").d("New thread ID: $newThreadId")
+            return newThreadId
+        }
+    }
+
+    override fun duplicateConversationByPhoneNumber(phoneNumber: String): Long? {
+        return Realm.getDefaultInstance().use { realm ->
+            realm.refresh()
+
+            // Find the conversation with this phone number
+            val originalConversation = realm.where(Conversation::class.java)
+                .findAll()
+                .firstOrNull { conversation ->
+                    conversation.recipients.any { recipient ->
+                        phoneNumberUtils.compare(recipient.address, phoneNumber)
+                    }
+                } ?: return@use null
+
+            Timber.d("Found conversation ${originalConversation.id} for phone number $phoneNumber")
+
+            // Use the existing duplicateConversation method
+            val newThreadId = duplicateConversation(originalConversation.id)
+            Timber.tag("CRI").d("New thread ID: $newThreadId")
+
+            if (newThreadId != null) {
+                Timber.tag("CRI")
+                    .d("Successfully duplicated conversation to new thread ID: $newThreadId")
+            } else {
+                Timber.tag("CRI")
+                    .w("Failed to duplicate conversation for phone number: $phoneNumber")
+            }
+
+            return newThreadId
+        }
+    }
 }

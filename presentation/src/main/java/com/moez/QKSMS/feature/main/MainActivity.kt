@@ -71,6 +71,7 @@ import kotlinx.android.synthetic.main.main_activity.*
 import kotlinx.android.synthetic.main.main_permission_hint.*
 import kotlinx.android.synthetic.main.main_syncing.*
 import javax.inject.Inject
+import kotlin.compareTo
 
 class MainActivity : QkThemedActivity(), MainView {
 
@@ -84,6 +85,7 @@ class MainActivity : QkThemedActivity(), MainView {
     @Inject lateinit var viewModelFactory: ViewModelProvider.Factory
 
     override val onNewIntentIntent: Subject<Intent> = PublishSubject.create()
+    override val duplicateConversationIntent: Subject<Unit> = PublishSubject.create()
     override val activityResumedIntent: Subject<Boolean> = PublishSubject.create()
     override val queryChangedIntent by lazy { toolbarSearch.textChanges() }
     override val composeIntent by lazy { compose.clicks() }
@@ -261,6 +263,7 @@ class MainActivity : QkThemedActivity(), MainView {
                     selectedConversations > 1
             findItem(R.id.block)?.isVisible = selectedConversations != 0
             findItem(R.id.rename)?.isVisible = selectedConversations == 1
+            findItem(R.id.duplicate)?.isVisible = selectedConversations == 1
         }
 
         listOf(plusBadge1, plusBadge2).forEach { badge ->
@@ -465,7 +468,12 @@ class MainActivity : QkThemedActivity(), MainView {
         } ?: false
 
     override fun onOptionsItemSelected(item: MenuItem) =
-        optionsItemIntent.onNext(item.itemId).let { true }
+        optionsItemIntent.onNext(item.itemId).let {
+            if (item.itemId == R.id.duplicate) {
+                duplicateConversationIntent.onNext(Unit)
+            }
+            true
+        }
 
     override fun onBackPressed() = backPressedSubject.onNext(NavItem.BACK)
 
