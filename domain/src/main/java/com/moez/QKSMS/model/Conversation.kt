@@ -18,6 +18,7 @@
  */
 package dev.octoshrimpy.quik.model
 
+import android.R
 import io.realm.RealmList
 import io.realm.RealmObject
 import io.realm.annotations.Index
@@ -32,6 +33,7 @@ open class Conversation(
     var lastMessage: Message? = null,
     var draft: String = "",
     var draftDate: Long = 0,
+    var dupe: Boolean = false,
 
     var blockingClient: Int? = null,
     var blockReason: String? = null,

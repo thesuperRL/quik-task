@@ -23,6 +23,7 @@ import dev.octoshrimpy.quik.extensions.mapNotNull
 import dev.octoshrimpy.quik.repository.ConversationRepository
 import dev.octoshrimpy.quik.repository.SyncRepository
 import io.reactivex.Flowable
+import timber.log.Timber
 import javax.inject.Inject
 
 class SyncMessage @Inject constructor(
@@ -32,6 +33,7 @@ class SyncMessage @Inject constructor(
 ) : Interactor<Uri>() {
 
     override fun buildObservable(params: Uri): Flowable<*> {
+        Timber.d("reach received3")
         return Flowable.just(params)
                 .mapNotNull { uri -> syncManager.syncMessage(uri) }
                 .doOnNext { message -> conversationRepo.updateConversations(message.threadId) }

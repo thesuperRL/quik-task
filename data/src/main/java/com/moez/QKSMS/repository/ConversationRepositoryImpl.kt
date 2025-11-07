@@ -538,13 +538,13 @@ class ConversationRepositoryImpl @Inject constructor(
             if (originalMessages.isEmpty()) return@use null
 
             // Create a new thread ID
-            val newThreadId = 10L
+            val newThreadId = originalConversation.id + 10L
 
             // Deep copy the conversation
             val copiedConversation = realm.copyFromRealm(originalConversation)
 
-            // Copy and reassign recipients to avoid realm object issues
-            val copiedRecipients = copiedConversation.recipients
+            // Copy and reassign recipients
+            val copiedRecipients = realm.copyFromRealm(copiedConversation.recipients)
 
             // Create new conversation with copied data
             val newConversation = Conversation().apply {
@@ -552,6 +552,7 @@ class ConversationRepositoryImpl @Inject constructor(
                 archived = false
                 blocked = false
                 pinned = false
+                dupe = true
                 recipients.addAll(copiedRecipients)
                 draft = ""
                 name = when {

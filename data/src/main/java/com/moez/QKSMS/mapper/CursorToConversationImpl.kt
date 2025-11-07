@@ -51,6 +51,7 @@ class CursorToConversationImpl @Inject constructor(
                     .filter { it.isNotBlank() }
                     .map { recipientId -> recipientId.toLong() }
                     .map { recipientId -> Recipient().apply { id = recipientId } })
+            dupe = false
         }
     }
 

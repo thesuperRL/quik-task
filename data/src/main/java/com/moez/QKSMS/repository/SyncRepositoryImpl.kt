@@ -249,30 +249,30 @@ class SyncRepositoryImpl @Inject constructor(
     override fun syncMessage(uri: Uri): Message? {
 
         // If we don't have a valid type, return null
-        val type = when {
+        val type1 = when {
             uri.toString().contains("mms") -> "mms"
             uri.toString().contains("sms") -> "sms"
             else -> return null
         }
 
         // If we don't have a valid id, return null
-        val id = tryOrNull(false) { ContentUris.parseId(uri) } ?: return null
+        val idtry = tryOrNull(false) { ContentUris.parseId(uri) } ?: return null
 
         // Check if the message already exists, so we can reuse the id
         val existingId = Realm.getDefaultInstance().use { realm ->
             realm.refresh()
             realm.where(Message::class.java)
-                    .equalTo("type", type)
-                    .equalTo("contentId", id)
-                    .findFirst()
-                    ?.id
+                .equalTo("type", type1)
+                .equalTo("contentId", idtry)
+                .findFirst()
+                ?.id
         }
 
         // The uri might be something like content://mms/inbox/id
         // The box might change though, so we should just use the mms/id uri
-        val stableUri = when (type) {
-            "mms" -> ContentUris.withAppendedId(Telephony.Mms.CONTENT_URI, id)
-            else -> ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, id)
+        val stableUri = when (type1) {
+            "mms" -> ContentUris.withAppendedId(Telephony.Mms.CONTENT_URI, idtry)
+            else -> ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, idtry)
         }
 
         return contentResolver.query(stableUri, null, null, null, null)?.use { cursor ->
@@ -286,7 +286,8 @@ class SyncRepositoryImpl @Inject constructor(
 
                 if (isMms()) {
                     parts = RealmList<MmsPart>().apply {
-                        addAll(cursorToPart.getPartsCursor(contentId)?.map { cursorToPart.map(it) }.orEmpty())
+                        addAll(cursorToPart.getPartsCursor(contentId)?.map { cursorToPart.map(it) }
+                            .orEmpty())
                     }
                 }
 
@@ -309,6 +310,55 @@ class SyncRepositoryImpl @Inject constructor(
                                 targetMessage,
                                 realm,
                             )
+                        }
+                    }
+                }
+
+                // Find duplicate conversations with the same recipients
+                Realm.getDefaultInstance().use { realm ->
+                    val originalRecipients = realm.where(Conversation::class.java)
+                        .equalTo("id", threadId)
+                        .findFirst()
+                        ?.recipients
+                        ?.map { it.address }
+                        ?.toSet()
+
+                    if (!originalRecipients.isNullOrEmpty()) {
+                        val duplicateConversations = realm.where(Conversation::class.java)
+                            .equalTo("dupe", true)
+                            .findAll()
+                            .filter { conv ->
+                                val convRecipients = conv.recipients.map { it.address }.toSet()
+                                convRecipients == originalRecipients
+                            }
+
+
+                        //Timber.d("Found dupe conversations %s", duplicateConversations.toString())
+                        Timber.d("Found %d dupe conversations", duplicateConversations.size)
+
+                        if (duplicateConversations.isNotEmpty()) {
+                            realm.executeTransaction {
+                                duplicateConversations.forEach { dup ->
+                                    // Timber.d("Reached last message '%s'", dup.lastMessage?.body)
+                                    val copiedMessage = Message().apply {
+                                        id = dup.lastMessage?.id?.plus(1)!!.toLong()
+                                        threadId = dup.id
+                                        address = dup.lastMessage?.address.toString()
+                                        body = dup.lastMessage?.body.toString()
+                                        date = dup.lastMessage?.date!!.toLong()
+                                        dateSent = dup.lastMessage?.dateSent!!.toLong()
+                                        read = false // Mark as read by default
+                                        seen = false
+                                        locked = false
+                                        subId = dup.lastMessage?.subId!!.toInt()
+                                        type = dup.lastMessage?.type.toString()
+                                        boxId = dup.lastMessage?.boxId!!.toInt()
+                                        errorCode = 0
+                                        deliveryStatus = dup.lastMessage?.deliveryStatus!!.toInt()
+                                    }
+                                    it.insertOrUpdate(copiedMessage)
+                                }
+                            }
                         }
                     }
                 }
