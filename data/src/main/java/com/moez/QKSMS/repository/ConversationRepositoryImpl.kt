@@ -540,11 +540,8 @@ class ConversationRepositoryImpl @Inject constructor(
             // Create a new thread ID
             val newThreadId = originalConversation.id + 10L
 
-            // Deep copy the conversation
-            val copiedConversation = realm.copyFromRealm(originalConversation)
-
             // Copy and reassign recipients
-            val copiedRecipients = realm.copyFromRealm(copiedConversation.recipients)
+            val copiedRecipients = realm.copyFromRealm(originalConversation.recipients)
 
             // Create new conversation with copied data
             val newConversation = Conversation().apply {
@@ -563,11 +560,11 @@ class ConversationRepositoryImpl @Inject constructor(
 
             // Copy all messages
             val newMessages = mutableListOf<Message>()
-            originalMessages.forEach { originalMessage ->
+            originalMessages.forEachIndexed { index, originalMessage ->
                 val copiedMessage = realm.copyFromRealm(originalMessage)
 
                 val newMessage = Message().apply {
-                    id = (newThreadId + newMessages.size) // Ensure unique IDs
+                    id = newThreadId + index + 1 // Ensure unique IDs
                     threadId = newThreadId
                     contentId = 0
                     address = copiedMessage.address
@@ -585,10 +582,9 @@ class ConversationRepositoryImpl @Inject constructor(
 
                     // Copy parts if MMS
                     if (copiedMessage.parts.isNotEmpty()) {
-                        val copiedParts = realm.copyFromRealm(copiedMessage.parts)
-                        copiedParts.forEach { part ->
+                        copiedMessage.parts.forEachIndexed { partIndex, part ->
                             val newPart = MmsPart().apply {
-                                id = (newThreadId + newMessages.size + parts.size)
+                                id = newThreadId + index + partIndex + 100000
                                 type = part.type
                                 seq = part.seq
                                 name = part.name
