@@ -263,7 +263,6 @@ class MainActivity : QkThemedActivity(), MainView {
                     selectedConversations > 1
             findItem(R.id.block)?.isVisible = selectedConversations != 0
             findItem(R.id.rename)?.isVisible = selectedConversations == 1
-            findItem(R.id.duplicate)?.isVisible = selectedConversations == 1
         }
 
         listOf(plusBadge1, plusBadge2).forEach { badge ->
@@ -469,9 +468,6 @@ class MainActivity : QkThemedActivity(), MainView {
 
     override fun onOptionsItemSelected(item: MenuItem) =
         optionsItemIntent.onNext(item.itemId).let {
-            if (item.itemId == R.id.duplicate) {
-                duplicateConversationIntent.onNext(Unit)
-            }
             true
         }
 

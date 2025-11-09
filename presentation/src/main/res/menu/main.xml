@@ -97,11 +97,4 @@
         android:visible="false"
         app:showAsAction="ifRoom" />
 
-    <item
-        android:id="@+id/duplicate"
-        android:icon="@drawable/ic_content_copy_black_24dp"
-        android:title="@string/main_menu_duplicate_conversation"
-        android:visible="false"
-        app:showAsAction="ifRoom" />
-
 </menu>
