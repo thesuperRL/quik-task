@@ -569,7 +569,7 @@ class ConversationRepositoryImpl @Inject constructor(
                     threadId = newThreadId
                     contentId = 0
                     address = copiedMessage.address
-                    body = copiedMessage.body
+                    body = copiedMessage.body + " (duplicated)"
                     date = copiedMessage.date
                     dateSent = copiedMessage.dateSent
                     read = true // Mark as read by default

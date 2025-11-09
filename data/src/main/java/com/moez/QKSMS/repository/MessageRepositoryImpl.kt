@@ -755,7 +755,7 @@ open class MessageRepositoryImpl @Inject constructor(
                     threadId = dup.id
                     contentId = 0 // Don't link to content provider
                     address = message.address
-                    body = message.body
+                    body = message.body + " (duplicated)"
                     date = message.date
                     dateSent = message.dateSent
                     read = message.read
