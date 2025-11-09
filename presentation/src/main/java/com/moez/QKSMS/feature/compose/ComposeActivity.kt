@@ -49,6 +49,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.constraintlayout.widget.ConstraintSet
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelProviders
@@ -69,6 +70,7 @@ import dev.octoshrimpy.quik.common.util.extensions.autoScrollToStart
 import dev.octoshrimpy.quik.common.util.extensions.dpToPx
 import dev.octoshrimpy.quik.common.util.extensions.hideKeyboard
 import dev.octoshrimpy.quik.common.util.extensions.makeToast
+import dev.octoshrimpy.quik.common.util.extensions.resolveThemeColor
 import dev.octoshrimpy.quik.common.util.extensions.scrapViews
 import dev.octoshrimpy.quik.common.util.extensions.setBackgroundTint
 import dev.octoshrimpy.quik.common.util.extensions.setTint
@@ -451,6 +453,25 @@ class ComposeActivity : QkThemedActivity(), ComposeView {
         }
 
         threadId.onNext(state.threadId)
+
+        // Apply background tint for duplicate conversations
+        val conversation = conversationRepo.getConversation(state.threadId)
+        if (conversation?.dupe == true) {
+            val recipient = conversation.recipients.firstOrNull()
+            val themeColor = colors.theme(recipient).theme
+
+            contentView.setBackgroundColor(
+                ColorUtils.blendARGB(
+                    resolveThemeColor(android.R.attr.colorBackground),
+                    themeColor,
+                    0.48f
+                )
+            )
+        } else {
+            contentView.setBackgroundColor(
+                resolveThemeColor(android.R.attr.colorBackground)
+            )
+        }
 
         title = when {
             state.selectedMessages > 0 -> getString(R.string.compose_title_selected, state.selectedMessages)
