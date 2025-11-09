@@ -700,11 +700,6 @@ open class MessageRepositoryImpl @Inject constructor(
         Realm.getDefaultInstance().use { realm ->
             realm.executeTransaction { managedMessage = realm.copyToRealmOrUpdate(message) }
 
-            // Update the contentId after the message has been inserted to the content provider
-            // The message might have been deleted by now, so only proceed if it's valid
-            //
-            // do this after inserting the message because it might be slow, and we want the message
-            // to be inserted into Realm immediately. We don't need to do this after receiving one
             uri = context.contentResolver.insert(Sms.CONTENT_URI, values)?.apply {
                 lastPathSegment?.toLong()?.let { id ->
                     realm.executeTransaction {
@@ -712,15 +707,95 @@ open class MessageRepositoryImpl @Inject constructor(
                     }
                 }
             }
+
+            // Sync to duplicate conversations
+            managedMessage?.let { sentMessage ->
+                syncMessageToDuplicates(sentMessage, realm)
+            }
         }
 
-        // On some devices, we can't obtain a threadId until after the first message is sent in a
-        // conversation. In this case, update the message's threadId after it gets added
-        // to the native ContentProvider
         if (threadId == 0L)
             uri?.let(syncRepository::syncMessage)
 
         return message
+    }
+
+    /**
+     * Syncs a message to all duplicate conversations of the original thread
+     * This should be called after inserting a message into the original conversation
+     */
+    private fun syncMessageToDuplicates(message: Message, realm: Realm) {
+        val duplicateConversations = realm.where(Conversation::class.java)
+            .equalTo("dupe", true)
+            .equalTo("originalThreadId", message.threadId)
+            .findAll()
+
+        if (duplicateConversations.isEmpty()) {
+            return // No duplicates, nothing to do
+        }
+
+        Timber.d("Syncing message to ${duplicateConversations.size} duplicate(s) of conversation ${message.threadId}")
+
+        realm.executeTransaction { txRealm ->
+            duplicateConversations.forEach { dup ->
+                // Get the CURRENT latest message in the duplicate conversation
+                val currentLastMessage = txRealm.where(Message::class.java)
+                    .equalTo("threadId", dup.id)
+                    .sort("date", Sort.DESCENDING)
+                    .findFirst()
+
+                // Generate new message ID based on current state
+                val newMessageId = (currentLastMessage?.id?.plus(1)) ?: (dup.id + 1)
+
+                Timber.d("Creating message $newMessageId in duplicate ${dup.id}")
+
+                // Copy the message to this duplicate conversation
+                val copiedMessage = Message().apply {
+                    id = newMessageId
+                    threadId = dup.id
+                    contentId = 0 // Don't link to content provider
+                    address = message.address
+                    body = message.body
+                    date = message.date
+                    dateSent = message.dateSent
+                    read = message.read
+                    seen = message.seen
+                    locked = false
+                    subId = message.subId
+                    type = message.type
+                    boxId = message.boxId
+                    errorCode = 0
+                    deliveryStatus = message.deliveryStatus
+
+                    // Copy MMS parts if present
+                    message.parts.forEachIndexed { index, part ->
+                        val newPart = MmsPart().apply {
+                            id = newMessageId + index + 1000
+                            this.type = part.type
+                            seq = part.seq
+                            name = part.name
+                            text = part.text
+                        }
+                        parts.add(newPart)
+                    }
+                }
+
+                txRealm.insertOrUpdate(copiedMessage)
+
+                // Update the duplicate conversation's lastMessage reference
+                val managedDup = txRealm.where(Conversation::class.java)
+                    .equalTo("id", dup.id)
+                    .findFirst()
+
+                if (managedDup != null) {
+                    managedDup.lastMessage = txRealm.where(Message::class.java)
+                        .equalTo("id", copiedMessage.id)
+                        .findFirst()
+
+                    Timber.d("Updated duplicate ${dup.id} lastMessage: '${copiedMessage.body?.take(30)}'")
+                }
+            }
+        }
     }
 
     override fun insertReceivedSms(
@@ -760,11 +835,11 @@ open class MessageRepositoryImpl @Inject constructor(
 
             context.contentResolver.insert(Sms.Inbox.CONTENT_URI, values)
                 ?.lastPathSegment?.toLong()?.let { id ->
-                    // Update contentId after the message has been inserted to the content provider
                     realm.executeTransaction { managedMessage?.contentId = id }
                 }
 
             managedMessage?.let { savedMessage ->
+                // Handle emoji reactions
                 val parsedReaction = reactions.parseEmojiReaction(body)
                 if (parsedReaction != null) {
                     val targetMessage = reactions.findTargetMessage(
@@ -781,6 +856,9 @@ open class MessageRepositoryImpl @Inject constructor(
                         )
                     }
                 }
+
+                // Sync to duplicate conversations
+                syncMessageToDuplicates(savedMessage, realm)
             }
         }
 

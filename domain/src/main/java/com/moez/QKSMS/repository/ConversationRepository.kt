@@ -98,4 +98,13 @@ interface ConversationRepository {
 
     fun deleteConversations(vararg threadIds: Long)
 
+    fun duplicateConversation(threadId: Long): Long?
+
+    /**
+     * Duplicates a conversation by phone number (Developer use only)
+     * @param phoneNumber The phone number to find and duplicate
+     * @return The new thread ID if successful, null otherwise
+     */
+    fun duplicateConversationByPhoneNumber(phoneNumber: String): Long?
+
 }

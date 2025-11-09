@@ -22,6 +22,7 @@ import android.content.Intent
 import dev.octoshrimpy.quik.common.base.QkView
 import dev.octoshrimpy.quik.manager.ChangelogManager
 import io.reactivex.Observable
+import io.reactivex.subjects.Subject
 
 interface MainView : QkView<MainState> {
 
@@ -43,6 +44,8 @@ interface MainView : QkView<MainState> {
     val changelogMoreIntent: Observable<*>
     val undoArchiveIntent: Observable<Unit>
     val snackbarButtonIntent: Observable<Unit>
+
+    val duplicateConversationIntent: Subject<Unit>
 
     fun requestDefaultSms()
     fun requestPermissions()

@@ -246,33 +246,36 @@ class SyncRepositoryImpl @Inject constructor(
                 })
         }
     }
+
     override fun syncMessage(uri: Uri): Message? {
+        Timber.d("called")
+
 
         // If we don't have a valid type, return null
-        val type = when {
+        val type1 = when {
             uri.toString().contains("mms") -> "mms"
             uri.toString().contains("sms") -> "sms"
             else -> return null
         }
 
         // If we don't have a valid id, return null
-        val id = tryOrNull(false) { ContentUris.parseId(uri) } ?: return null
+        val idtry = tryOrNull(false) { ContentUris.parseId(uri) } ?: return null
 
         // Check if the message already exists, so we can reuse the id
         val existingId = Realm.getDefaultInstance().use { realm ->
             realm.refresh()
             realm.where(Message::class.java)
-                    .equalTo("type", type)
-                    .equalTo("contentId", id)
-                    .findFirst()
-                    ?.id
+                .equalTo("type", type1)
+                .equalTo("contentId", idtry)
+                .findFirst()
+                ?.id
         }
 
         // The uri might be something like content://mms/inbox/id
         // The box might change though, so we should just use the mms/id uri
-        val stableUri = when (type) {
-            "mms" -> ContentUris.withAppendedId(Telephony.Mms.CONTENT_URI, id)
-            else -> ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, id)
+        val stableUri = when (type1) {
+            "mms" -> ContentUris.withAppendedId(Telephony.Mms.CONTENT_URI, idtry)
+            else -> ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, idtry)
         }
 
         return contentResolver.query(stableUri, null, null, null, null)?.use { cursor ->
@@ -281,38 +284,118 @@ class SyncRepositoryImpl @Inject constructor(
             if (!cursor.moveToFirst()) return null
 
             val columnsMap = CursorToMessage.MessageColumns(cursor)
-            cursorToMessage.map(Pair(cursor, columnsMap)).apply {
+            val message = cursorToMessage.map(Pair(cursor, columnsMap)).apply {
                 existingId?.let { this.id = it }
 
                 if (isMms()) {
                     parts = RealmList<MmsPart>().apply {
-                        addAll(cursorToPart.getPartsCursor(contentId)?.map { cursorToPart.map(it) }.orEmpty())
-                    }
-                }
-
-                conversationRepo.getOrCreateConversation(threadId)
-                insertOrUpdate()
-
-                val text = getText(false)
-                val parsedReaction = reactions.parseEmojiReaction(text)
-                if (parsedReaction != null) {
-                    Realm.getDefaultInstance().use { realm ->
-                        val targetMessage = reactions.findTargetMessage(
-                            threadId,
-                            parsedReaction.originalMessage,
-                            realm
-                        )
-                        realm.executeTransaction {
-                            reactions.saveEmojiReaction(
-                                this,
-                                parsedReaction,
-                                targetMessage,
-                                realm,
-                            )
-                        }
+                        addAll(cursorToPart.getPartsCursor(contentId)?.map { cursorToPart.map(it) }
+                            .orEmpty())
                     }
                 }
             }
+            // Get or create the conversation
+            conversationRepo.getOrCreateConversation(message.threadId)
+
+            // Insert the message into Realm
+            message.insertOrUpdate()
+
+            // Handle emoji reactions
+            val txt = message.getText(false)
+            val parsedReaction = reactions.parseEmojiReaction(txt)
+            if (parsedReaction != null) {
+                Realm.getDefaultInstance().use { realm ->
+                    val targetMessage = reactions.findTargetMessage(
+                        message.threadId,
+                        parsedReaction.originalMessage,
+                        realm
+                    )
+                    realm.executeTransaction {
+                        reactions.saveEmojiReaction(
+                            message,
+                            parsedReaction,
+                            targetMessage,
+                            realm,
+                        )
+                    }
+                }
+            }
+
+            // NOW sync to duplicate conversations - after the message is fully created
+            Realm.getDefaultInstance().use { realm ->
+                val duplicateConversations = realm.where(Conversation::class.java)
+                    .equalTo("dupe", true)
+                    .equalTo("originalThreadId", message.threadId)
+                    .findAll()
+
+                if (duplicateConversations.isNotEmpty()) {
+                    Timber.d("Syncing message to ${duplicateConversations.size} duplicate(s) of conversation ${message.threadId}")
+
+                    realm.executeTransaction { txRealm ->
+                        duplicateConversations.forEach { dup ->
+                            // Get the CURRENT latest message in the duplicate conversation
+                            val currentLastMessage = txRealm.where(Message::class.java)
+                                .equalTo("threadId", dup.id)
+                                .sort("date", Sort.DESCENDING)
+                                .findFirst()
+
+                            // Generate new message ID based on current state
+                            val newMessageId = (currentLastMessage?.id?.plus(1)) ?: (dup.id + 1)
+
+                            Timber.d("Creating message $newMessageId in duplicate ${dup.id} from original message ${message.id}")
+
+                            // Copy the message to this duplicate conversation
+                            val copiedMessage = Message().apply {
+                                id = newMessageId
+                                threadId = dup.id
+                                contentId = 0 // Don't link to content provider
+                                address = message.address
+                                body = message.body
+                                date = message.date
+                                dateSent = message.dateSent
+                                read = message.read
+                                seen = message.seen
+                                locked = false
+                                subId = message.subId
+                                type = message.type
+                                boxId = message.boxId
+                                errorCode = 0
+                                deliveryStatus = message.deliveryStatus
+
+                                // Copy MMS parts if present
+                                message.parts.forEachIndexed { index, part ->
+                                    val newPart = MmsPart().apply {
+                                        id = newMessageId + index + 1000
+                                        type = part.type
+                                        seq = part.seq
+                                        name = part.name
+                                        text = part.text
+                                    }
+                                    parts.add(newPart)
+                                }
+                            }
+
+                            txRealm.insertOrUpdate(copiedMessage)
+
+                            // Update the duplicate conversation's lastMessage reference
+                            val managedDup = txRealm.where(Conversation::class.java)
+                                .equalTo("id", dup.id)
+                                .findFirst()
+
+                            if (managedDup != null) {
+                                managedDup.lastMessage = txRealm.where(Message::class.java)
+                                    .equalTo("id", copiedMessage.id)
+                                    .findFirst()
+
+                                Timber.d("Updated duplicate ${dup.id} lastMessage to: '${copiedMessage.body?.take(50)}'")
+                            }
+                        }
+                    }
+                } else {
+                    Timber.v("No duplicates found for conversation ${message.threadId}")
+                }
+            }
+            return message;
         }
     }
 
