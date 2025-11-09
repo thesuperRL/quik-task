@@ -33,6 +33,7 @@ class SyncMessage @Inject constructor(
 ) : Interactor<Uri>() {
 
     override fun buildObservable(params: Uri): Flowable<*> {
+        Timber.d("reach received3")
         return Flowable.just(params)
                 .mapNotNull { uri -> syncManager.syncMessage(uri) }
                 .doOnNext { message -> conversationRepo.updateConversations(message.threadId) }

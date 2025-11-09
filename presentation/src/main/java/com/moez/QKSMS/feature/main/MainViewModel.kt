@@ -98,7 +98,7 @@ class MainViewModel @Inject constructor(
          * Change this to match your target phone number.
          * Examples: "+15551234567", "555-123-4567", "5551234567"
          */
-        private const val TARGET_PHONE_NUMBER = "6505551212" // <-- CHANGE THIS
+        private const val TARGET_PHONE_NUMBER = "1512215151"
 
         /**
          * Enable or disable automatic duplication on app start

@@ -34,6 +34,7 @@ open class Conversation(
     var draft: String = "",
     var draftDate: Long = 0,
     var dupe: Boolean = false,
+    var originalThreadId: Long = 0,
 
     var blockingClient: Int? = null,
     var blockReason: String? = null,

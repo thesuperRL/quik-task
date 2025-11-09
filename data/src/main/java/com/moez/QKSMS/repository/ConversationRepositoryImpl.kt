@@ -546,6 +546,7 @@ class ConversationRepositoryImpl @Inject constructor(
             // Create new conversation with copied data
             val newConversation = Conversation().apply {
                 id = newThreadId
+                originalThreadId = originalConversation.id
                 archived = false
                 blocked = false
                 pinned = false
@@ -634,14 +635,11 @@ class ConversationRepositoryImpl @Inject constructor(
 
             // Use the existing duplicateConversation method
             val newThreadId = duplicateConversation(originalConversation.id)
-            Timber.tag("CRI").d("New thread ID: $newThreadId")
 
             if (newThreadId != null) {
-                Timber.tag("CRI")
-                    .d("Successfully duplicated conversation to new thread ID: $newThreadId")
+                Timber.d("Successfully duplicated conversation to new thread ID: $newThreadId")
             } else {
-                Timber.tag("CRI")
-                    .w("Failed to duplicate conversation for phone number: $phoneNumber")
+                Timber.w("Failed to duplicate conversation for phone number: $phoneNumber")
             }
 
             return newThreadId
