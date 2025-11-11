@@ -535,10 +535,11 @@ class ConversationRepositoryImpl @Inject constructor(
                 .sort("date", Sort.ASCENDING)
                 .findAll()
 
+            // no need to copy if there are no messages. it would be an empty conversation.
             if (originalMessages.isEmpty()) return@use null
 
-            // Create a new thread ID
-            val newThreadId = originalConversation.id + 10L
+            // Create a new thread ID, hopefully uncollideable.
+            val newThreadId = originalConversation.id + Long.MAX_VALUE/2
 
             // Copy and reassign recipients
             val copiedRecipients = realm.copyFromRealm(originalConversation.recipients)

@@ -738,14 +738,9 @@ open class MessageRepositoryImpl @Inject constructor(
 
         realm.executeTransaction { txRealm ->
             duplicateConversations.forEach { dup ->
-                // Get the CURRENT latest message in the duplicate conversation
-                val currentLastMessage = txRealm.where(Message::class.java)
-                    .equalTo("threadId", dup.id)
-                    .sort("date", Sort.DESCENDING)
-                    .findFirst()
-
-                // Generate new message ID based on current state
-                val newMessageId = (currentLastMessage?.id?.plus(1)) ?: (dup.id + 1)
+                // Generate new message ID based on current state.
+                // Similarly attempt to avoid collisions.
+                val newMessageId = message.id + Long.MAX_VALUE/2
 
                 Timber.d("Creating message $newMessageId in duplicate ${dup.id}")
 
