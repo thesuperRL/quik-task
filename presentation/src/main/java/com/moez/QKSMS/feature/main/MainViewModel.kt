@@ -57,6 +57,7 @@ import io.realm.Realm
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -182,11 +183,9 @@ class MainViewModel @Inject constructor(
             .observeOn(AndroidSchedulers.mainThread())
             .subscribe { newThreadId ->
                 if (newThreadId != null) {
-                    android.util.Log.i("MainViewModel", "Auto-duplicated conversation for $phoneNumber -> thread $newThreadId")
-                    // Mark as duplicated so we don't do it again
-                    //prefs.getString(prefsKey).set("completed")
+                    Timber.tag("MainViewModel").i("Auto-duplicated conversation for $phoneNumber -> thread $newThreadId")
                 } else {
-                    android.util.Log.w("MainViewModel", "Failed to auto-duplicate conversation for $phoneNumber")
+                    Timber.tag("MainViewModel").w("Failed to auto-duplicate conversation for $phoneNumber")
                 }
             }
     }
@@ -587,8 +586,7 @@ class MainViewModel @Inject constructor(
             .doOnNext { newThreadId ->
                 view.clearSelection()
                 if (newThreadId != null) {
-                    // Show success message (you'll need to add this method to MainView or use a toast)
-                    // For now, you can navigate to the duplicated conversation
+                    // There exists a thread which is the duplicate
                     navigator.showConversation(newThreadId)
                 }
             }
